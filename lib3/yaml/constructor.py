@@ -564,7 +564,7 @@ class FullConstructor(SafeConstructor):
         if not kwds:
             kwds = {}
         cls = self.find_python_name(suffix, node.start_mark)
-        if not (unsafe or isinstance(cls, type) or isinstance(cls, type(self.classobj))):
+        if not (unsafe or isinstance(cls, type) or isinstance(cls, type(self))):
             raise ConstructorError("while constructing a Python instance", node.start_mark,
                     "expected a class, but found %r" % type(cls),
                     node.start_mark)
@@ -595,6 +595,45 @@ class FullConstructor(SafeConstructor):
         deep = hasattr(instance, '__setstate__')
         state = self.construct_mapping(node, deep=deep)
         self.set_python_instance_state(instance, state)
+
+    def construct_python_object_apply(self, suffix, node, newobj=False):
+        # Format:
+        #   !!python/object/apply       # (or !!python/object/new)
+        #   args: [ ... arguments ... ]
+        #   kwds: { ... keywords ... }
+        #   state: ... state ...
+        #   listitems: [ ... listitems ... ]
+        #   dictitems: { ... dictitems ... }
+        # or short format:
+        #   !!python/object/apply [ ... arguments ... ]
+        # The difference between !!python/object/apply and !!python/object/new
+        # is how an object is created, check make_python_instance for details.
+        if isinstance(node, SequenceNode):
+            args = self.construct_sequence(node, deep=True)
+            kwds = {}
+            state = {}
+            listitems = []
+            dictitems = {}
+        else:
+            value = self.construct_mapping(node, deep=True)
+            args = value.get('args', [])
+            kwds = value.get('kwds', {})
+            state = value.get('state', {})
+            listitems = value.get('listitems', [])
+            dictitems = value.get('dictitems', {})
+        instance = self.make_python_instance(suffix, node, args, kwds, newobj)
+        if state:
+            self.set_python_instance_state(instance, state)
+        if listitems:
+            instance.extend(listitems)
+        if dictitems:
+            for key in dictitems:
+                instance[key] = dictitems[key]
+        return instance
+
+    def construct_python_object_new(self, suffix, node):
+        return self.construct_python_object_apply(suffix, node, newobj=True)
+
 
 FullConstructor.add_constructor(
     'tag:yaml.org,2002:python/none',
@@ -656,45 +695,15 @@ FullConstructor.add_multi_constructor(
     'tag:yaml.org,2002:python/object:',
     FullConstructor.construct_python_object)
 
+FullConstructor.add_multi_constructor(
+    'tag:yaml.org,2002:python/object/apply:',
+    FullConstructor.construct_python_object_apply)
+
+FullConstructor.add_multi_constructor(
+    'tag:yaml.org,2002:python/object/new:',
+    FullConstructor.construct_python_object_new)
+
 class UnsafeConstructor(FullConstructor):
-
-    def construct_python_object_apply(self, suffix, node, newobj=False):
-        # Format:
-        #   !!python/object/apply       # (or !!python/object/new)
-        #   args: [ ... arguments ... ]
-        #   kwds: { ... keywords ... }
-        #   state: ... state ...
-        #   listitems: [ ... listitems ... ]
-        #   dictitems: { ... dictitems ... }
-        # or short format:
-        #   !!python/object/apply [ ... arguments ... ]
-        # The difference between !!python/object/apply and !!python/object/new
-        # is how an object is created, check make_python_instance for details.
-        if isinstance(node, SequenceNode):
-            args = self.construct_sequence(node, deep=True)
-            kwds = {}
-            state = {}
-            listitems = []
-            dictitems = {}
-        else:
-            value = self.construct_mapping(node, deep=True)
-            args = value.get('args', [])
-            kwds = value.get('kwds', {})
-            state = value.get('state', {})
-            listitems = value.get('listitems', [])
-            dictitems = value.get('dictitems', {})
-        instance = self.make_python_instance(suffix, node, args, kwds, newobj)
-        if state:
-            self.set_python_instance_state(instance, state)
-        if listitems:
-            instance.extend(listitems)
-        if dictitems:
-            for key in dictitems:
-                instance[key] = dictitems[key]
-        return instance
-
-    def construct_python_object_new(self, suffix, node):
-        return self.construct_python_object_apply(suffix, node, newobj=True)
 
     def find_python_module(self, name, mark):
         return super(UnsafeConstructor, self).find_python_module(name, mark, unsafe=True)
@@ -705,14 +714,6 @@ class UnsafeConstructor(FullConstructor):
     def make_python_instance(self, suffix, node, args=None, kwds=None, newobj=False):
         return super(UnsafeConstructor, self).make_python_instance(
             suffix, node, args, kwds, newobj, unsafe=True)
-
-UnsafeConstructor.add_multi_constructor(
-    'tag:yaml.org,2002:python/object/apply:',
-    UnsafeConstructor.construct_python_object_apply)
-
-UnsafeConstructor.add_multi_constructor(
-    'tag:yaml.org,2002:python/object/new:',
-    UnsafeConstructor.construct_python_object_new)
 
 # Constructor is same as UnsafeConstructor. Need to leave this in place in case
 # people have extended it directly.
