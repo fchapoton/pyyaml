@@ -564,7 +564,7 @@ class FullConstructor(SafeConstructor):
         if not kwds:
             kwds = {}
         cls = self.find_python_name(suffix, node.start_mark)
-        if not (unsafe or isinstance(cls, type) or isinstance(cls, type(self.classobj))):
+        if not (unsafe or isinstance(cls, type)):
             raise ConstructorError("while constructing a Python instance", node.start_mark,
                     "expected a class, but found %r" % type(cls),
                     node.start_mark)
